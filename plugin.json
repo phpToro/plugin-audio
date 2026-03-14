@@ -1,0 +1,21 @@
+{
+    "name": "Audio",
+    "namespace": "audio",
+    "platforms": {
+        "ios": {
+            "handlers": ["ios/AudioHandler.swift"],
+            "frameworks": ["AVFoundation"],
+            "permissions": [
+                {
+                    "key": "NSMicrophoneUsageDescription",
+                    "description": "This app needs microphone access to record audio"
+                }
+            ],
+            "backgroundModes": ["audio"]
+        }
+    },
+    "js": ["js/audio.js"],
+    "php": {
+        "files": ["php/Audio.php"]
+    }
+}
