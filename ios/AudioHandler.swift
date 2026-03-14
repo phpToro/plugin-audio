@@ -1,11 +1,14 @@
 import Foundation
 import AVFoundation
 
-final class AudioHandler: NativeHandler {
+final class AudioHandler: AsyncHandler {
     let namespace = "audio"
 
     var onAsyncCallback: ((String, Any?) -> Void)?
 
+    /// AVPlayer for streaming (remote URLs, radio)
+    private var streamPlayer: AVPlayer?
+    /// AVAudioPlayer for local files
     private var audioPlayer: AVAudioPlayer?
     private var audioRecorder: AVAudioRecorder?
     private var pendingCallbackRef: String?
@@ -16,24 +19,35 @@ final class AudioHandler: NativeHandler {
             return play(args)
 
         case "pause":
+            streamPlayer?.pause()
             audioPlayer?.pause()
             return true
 
         case "resume":
-            audioPlayer?.play()
+            if let sp = streamPlayer {
+                sp.play()
+            } else {
+                audioPlayer?.play()
+            }
             return true
 
         case "stop":
+            streamPlayer?.pause()
+            streamPlayer = nil
             audioPlayer?.stop()
             audioPlayer = nil
             return true
 
         case "setVolume":
             let volume = args["volume"] as? Float ?? 1.0
+            streamPlayer?.volume = volume
             audioPlayer?.volume = volume
             return true
 
         case "isPlaying":
+            if let sp = streamPlayer {
+                return sp.rate > 0
+            }
             return audioPlayer?.isPlaying ?? false
 
         case "startRecording":
@@ -55,41 +69,45 @@ final class AudioHandler: NativeHandler {
             return ["error": "Missing path"]
         }
 
-        let url: URL
+        let ref = args["_callbackRef"] as? String
+
         if path.hasPrefix("http://") || path.hasPrefix("https://") {
-            // Remote URL — download first
-            let ref = args["_callbackRef"] as? String
-            guard let remoteURL = URL(string: path) else {
+            // Streaming via AVPlayer (supports live radio + remote files)
+            guard let url = URL(string: path) else {
                 return ["error": "Invalid URL"]
             }
-            URLSession.shared.dataTask(with: remoteURL) { data, _, error in
-                if let error = error {
-                    self.onAsyncCallback?(ref ?? "", ["error": error.localizedDescription])
-                    return
+
+            // Stop any existing playback
+            streamPlayer?.pause()
+            streamPlayer = nil
+            audioPlayer?.stop()
+            audioPlayer = nil
+
+            let player = AVPlayer(url: url)
+            streamPlayer = player
+
+            dbg.log("Audio", "Streaming: \(path)")
+            player.play()
+
+            // Notify when playback starts
+            if let ref = ref {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.onAsyncCallback?(ref, ["playing": true])
                 }
-                guard let data = data else {
-                    self.onAsyncCallback?(ref ?? "", ["error": "No data received"])
-                    return
-                }
-                DispatchQueue.main.async {
-                    do {
-                        self.audioPlayer = try AVAudioPlayer(data: data)
-                        self.audioPlayer?.play()
-                        self.onAsyncCallback?(ref ?? "", ["playing": true])
-                    } catch {
-                        self.onAsyncCallback?(ref ?? "", ["error": error.localizedDescription])
-                    }
-                }
-            }.resume()
-            return ["status": "loading"]
+            }
+
+            return ["status": "streaming"]
         }
 
-        url = URL(fileURLWithPath: path)
+        // Local file via AVAudioPlayer
+        let url = URL(fileURLWithPath: path)
+        streamPlayer?.pause()
+        streamPlayer = nil
 
         do {
             audioPlayer = try AVAudioPlayer(contentsOf: url)
             audioPlayer?.play()
-            dbg.log("Audio", "Playing: \(path)")
+            dbg.log("Audio", "Playing local: \(path)")
             return true
         } catch {
             dbg.error("Audio", "Play failed: \(error)")
