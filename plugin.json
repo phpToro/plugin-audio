@@ -12,6 +12,16 @@
                 }
             ],
             "backgroundModes": ["audio"]
+        },
+        "macos": {
+            "handlers": ["macos/AudioHandler.swift"],
+            "frameworks": ["AVFoundation"],
+            "permissions": [
+                {
+                    "key": "NSMicrophoneUsageDescription",
+                    "description": "This app needs microphone access to record audio"
+                }
+            ]
         }
     },
     "js": ["js/audio.js"],
